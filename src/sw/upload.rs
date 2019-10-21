@@ -8,28 +8,29 @@ use diesel::insert_into;
 use diesel::result::Error as DbError;
 
 use super::line::Line;
-use super::schema;
+use super::error::SwError;
+use crate::schema;
 
 struct UpsertMemo {
-    pub domain_memo: HashMap<String, i32>,
-    pub machine_memo: HashMap<String, i32>,
-    pub publisher_memo: HashMap<String, i32>,
-    pub program_memo: HashMap<String, i32>,
-    pub users_programs_memo: HashMap::<(i32, i32), i32>,
+    pub domain_memo: HashMap<String, i64>,
+    pub machine_memo: HashMap<String, i64>,
+    pub publisher_memo: HashMap<String, i64>,
+    pub program_memo: HashMap<String, i64>,
+    pub machines_programs_memo: HashMap::<(i64, i64), i64>,
 }
 
 impl UpsertMemo {
     fn new(capacity: usize) -> UpsertMemo {
         UpsertMemo {
-            domain_memo: HashMap::<String, i32>::with_capacity(capacity),
-            machine_memo: HashMap::<String, i32>::with_capacity(capacity),
-            publisher_memo: HashMap::<String, i32>::with_capacity(capacity),
-            program_memo: HashMap::<String, i32>::with_capacity(capacity),
-            users_programs_memo: HashMap::<(i32, i32), i32>::with_capacity(capacity),
+            domain_memo: HashMap::<String, i64>::with_capacity(capacity),
+            machine_memo: HashMap::<String, i64>::with_capacity(capacity),
+            publisher_memo: HashMap::<String, i64>::with_capacity(capacity),
+            program_memo: HashMap::<String, i64>::with_capacity(capacity),
+            machines_programs_memo: HashMap::<(i64, i64), i64>::with_capacity(capacity),
         }
     }
 
-    fn upsert_domain(&mut self, arg: &String, conn: &PgConnection) -> Result<i32, DbError> {
+    fn upsert_domain(&mut self, arg: &String, conn: &PgConnection) -> Result<i64, DbError> {
         use schema::domains::dsl::*;
 
         match self.domain_memo.get(arg) {
@@ -44,7 +45,7 @@ impl UpsertMemo {
                 let new_id = match sql_call {
                     Ok(new_id) => new_id,
                     Err(e) => match e {
-                        DbError::NotFound => domains.select(id).filter(name.eq(arg)).load::<i32>(conn)?[0],
+                        DbError::NotFound => domains.select(id).filter(name.eq(arg)).load::<i64>(conn)?[0],
                         _ => return Err(e)
                     }
                 };
@@ -57,7 +58,7 @@ impl UpsertMemo {
         }
     }
 
-    fn upsert_machine(&mut self, new_domain: i32, machine: &String, conn: &PgConnection) -> Result<i32, DbError> {
+    fn upsert_machine(&mut self, new_domain: i64, machine: &String, conn: &PgConnection) -> Result<i64, DbError> {
         use schema::machines::dsl::*;
 
         match self.machine_memo.get(machine) {
@@ -77,7 +78,7 @@ impl UpsertMemo {
         }
     }
 
-    fn upsert_publisher(&mut self, arg: &String, conn: &PgConnection) -> Result<i32, DbError> {
+    fn upsert_publisher(&mut self, arg: &String, conn: &PgConnection) -> Result<i64, DbError> {
         use schema::publishers::dsl::*;
 
         match self.publisher_memo.get(arg) {
@@ -94,7 +95,7 @@ impl UpsertMemo {
                     Err(e) => match e {
                         DbError::NotFound => {
                             let existing_id = publishers.select(id).filter(name.eq(arg)).execute(conn)?;
-                            existing_id as i32
+                            existing_id as i64
                         }
                         _ => return Err(e)
                     }
@@ -108,7 +109,7 @@ impl UpsertMemo {
         }
     }
 
-    fn upsert_program(&mut self, publisher: i32, program: &String, version_str: &String, conn: &PgConnection) -> Result<i32, DbError> {
+    fn upsert_program(&mut self, publisher: i64, program: &String, version_str: &String, conn: &PgConnection) -> Result<i64, DbError> {
         use schema::programs::dsl::*;
 
         match self.program_memo.get(program) {
@@ -128,52 +129,74 @@ impl UpsertMemo {
         }
     }
 
-    fn upsert_users_programs(&mut self, machine: i32, program: i32, install_date: &Option<NaiveDate>, path_str: &Option<PathBuf>, conn: &PgConnection) -> Result<i32, DbError> {
-        use schema::users_programs::dsl::*;
+    fn upsert_machines_programs(&mut self, machine: i64, program: i64, report_id: i64, path_str: &Option<PathBuf>, conn: &PgConnection) -> Result<i64, DbError> {
+        use schema::machines_programs::dsl::*;
 
         let lossy_path = match path_str {
             None => None,
             Some(p) => Some(p.to_string_lossy())
         };
-        
+
         let join_table_tuple = (machine, program);
-        match self.users_programs_memo.get(&join_table_tuple) {
+        match self.machines_programs_memo.get(&join_table_tuple) {
             Some(programs_id) => Ok(*programs_id),
             None => {
-                let new_id = insert_into(users_programs)
-                    .values(( machine_id.eq(machine), program_id.eq(program), date_installed.eq(install_date), path.eq(&lossy_path) ))
+                let new_id = insert_into(machines_programs)
+                    .values(( machine_id.eq(machine), program_id.eq(program), sw_report_id.eq(report_id), path.eq(&lossy_path) ))
                     .on_conflict(( machine_id, program_id ))
                     .do_update()
-                    .set(( date_installed.eq(install_date), path.eq(&lossy_path) ))
+                    .set(( sw_report_id.eq(report_id), path.eq(&lossy_path) ))
                     .returning(id)
                     .get_result(conn)?;
 
-                self.users_programs_memo.insert(join_table_tuple, new_id);
+                self.machines_programs_memo.insert(join_table_tuple, new_id);
                 Ok(new_id)
             }
         }
     }
 }
 
-pub fn upsert(lines: &mut Vec::<Line>, conn: &PgConnection) -> Vec<DbError> {
-    let mut memo = UpsertMemo::new(lines.len());
+pub fn upsert_bytes<'a>(buf: &'a mut [u8], conn: &PgConnection) -> Vec<SwError> {
+    upsert(Line::from_bytes(buf), conn)
+}
 
-    let mut errors = vec![];
-    for line in lines {
+pub fn upsert(lines: Vec::<Line>, conn: &PgConnection) -> Vec<SwError> {
+    let mut memo = UpsertMemo::new(lines.len());
+    let columns = ["domain", "publisher", "hostname", "program/version", "program/computer combination OR install date OR install path"];
+    let (mut col_ptr, mut lineno) = (0,0);
+    
+    lines.into_iter().filter_map(|line| {
+        lineno += 1;
+
         let transaction_result = conn.transaction::<(), DbError, _>(|| {
             let domain_id = memo.upsert_domain(&line.domain, conn)?;
-            let machine_id = memo.upsert_machine(domain_id, &line.hostname, conn)?;
-
+            col_ptr += 1;
+            
             let publisher_id = memo.upsert_publisher(&line.publisher, conn)?;
-            let program_id = memo.upsert_program(publisher_id, &line.program, &line.version, conn)?;
+            col_ptr += 1;
 
-            memo.upsert_users_programs(machine_id, program_id, &line.date_installed, &line.path, conn)?;
+            let machine_id = memo.upsert_machine(domain_id, &line.hostname, conn)?;
+            col_ptr += 1;
+
+            let program_id = memo.upsert_program(publisher_id, &line.program, &line.version, conn)?;
+            col_ptr += 1;
+
+            memo.upsert_machines_programs(machine_id, program_id, sw_report_id, &line.path, conn)?;
             Ok(())
         });
 
-        if transaction_result.is_err() {
-            errors.push(transaction_result.unwrap_err());
+        match transaction_result {
+            Ok(()) => {
+                col_ptr = 0;
+                None
+            },
+            Err(e) => {
+                let e = SwError::ArgError {
+                    lineno: lineno, col: columns[col_ptr].to_string(), line: line, error: e.to_string()
+                };
+                col_ptr = 0;
+                Some(e)
+            }
         }
-    }
-    errors
+    }).collect::<Vec::<SwError>>()
 }

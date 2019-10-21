@@ -1,6 +1,5 @@
-#[derive(Queryable)]
+#[derive(Queryable, Serialize, Deserialize)]
 pub struct Domain {
-    pub id: i32,
+    pub id: i64,
     pub name: String
 }
-

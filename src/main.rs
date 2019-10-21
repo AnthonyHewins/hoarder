@@ -1,46 +1,32 @@
-#[macro_use]
-extern crate diesel;
-extern crate dotenv;
+#![feature(proc_macro_hygiene, decl_macro, type_ascription)]
+
+#[macro_use] extern crate diesel;
+#[macro_use] extern crate rocket;
+#[macro_use] extern crate rocket_contrib;
+#[macro_use] extern crate serde;
+#[macro_use] extern crate failure;
 extern crate chrono;
 
-use std::path::PathBuf;
-use structopt::StructOpt;
+#[database("postgresql_logs")]
+pub struct Db(diesel::PgConnection);
 
-use diesel::prelude::*;
-use diesel::pg::PgConnection;
-use dotenv::dotenv;
-use std::env;
+mod schema;
+mod models;
+mod controllers;
+mod sw;
 
-pub mod schema;
-pub mod line;
-pub mod models;
-pub mod controller;
+fn main() {
+    let routes = routes![
+        controllers::domains::index,
+        controllers::machines::index,
+        controllers::machines_programs::index,
+        controllers::programs::index,
+        controllers::publishers::index,
+        controllers::solar_winds::upload,
+    ];
 
-#[derive(StructOpt)]
-#[structopt(name = "Hoarder", about = "Analyze all software on machines")]
-struct Cli {
-    /// File location
-    #[structopt(help = "Points to the SolarWinds file")]
-    file: PathBuf,
-}
-
-pub fn connect() -> PgConnection {
-    dotenv().ok();
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    PgConnection::establish(&database_url).expect(
-        &format!("Error connecting to {}", database_url)
-    )
-}
-
-fn main() -> Result<(), std::io::Error> {
-    let args = Cli::from_args();
-
-    let mut linevec = line::Line::from_file(args.file);
-    let conn = connect();
-    controller::upsert(&mut linevec, &conn).iter().for_each(|error| {
-        println!("{:?}", error);
-    });
-
-    Ok(())
+    rocket::ignite()
+        .attach(Db::fairing())
+        .mount("/api", routes)
+        .launch();
 }

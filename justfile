@@ -1,0 +1,2 @@
+check:
+    watchexec cargo check

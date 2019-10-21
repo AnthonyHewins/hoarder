@@ -1,10 +1,8 @@
-extern crate serde;
+use std::fmt;
+use std::path::PathBuf;
+use std::str;
 
 use serde::{de, Deserialize, Deserializer};
-
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
 use chrono::NaiveDate;
 
 fn stupid_format<'de, D>(deserializer: D) -> Result<Option<NaiveDate>, D::Error> where D: Deserializer<'de> {
@@ -14,18 +12,19 @@ fn stupid_format<'de, D>(deserializer: D) -> Result<Option<NaiveDate>, D::Error>
         return Ok(None);
     }
 
+    // This isn't correct, this should remove all whitespace (\s)
     match s.find(" ") {
         Some(index) => s.replace_range(index.., ""),
         None => ()
     };
- 
+    
     match NaiveDate::parse_from_str(&s, "%m/%d/%Y").map_err(de::Error::custom) {
         Ok(date) => Ok(Some(date)),
         Err(e) => Err(e)
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Line {
     #[serde(rename = "Domain or Workgroup")]
     pub domain: String,
@@ -52,10 +51,38 @@ pub struct Line {
     pub path: Option<PathBuf>
 }
 
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{{\
+             domain: {}, \
+             hostname: {}, \
+             program: {}, \
+             version: {}, \
+             publisher: {}, \
+             owner: {}, \
+             date_installed: {:?}, \
+             path: {:?}\
+             }}",
+            self.domain, 
+            self.hostname,
+            self.program,
+            self.version,
+            self.publisher,
+            self.owner,
+            self.date_installed,
+            self.path
+        )
+    }
+}
+
 impl Line {
-    pub fn from_file<P: Into<PathBuf>>(path: P) -> Vec<Line> {
-        let string = Line::read_file_to_string(path.into());
-        let mut reader = csv::ReaderBuilder::new().from_reader(string.as_bytes());
+    pub fn from_bytes<'a>(bytes: &'a [u8]) -> Vec<Line> {
+        let utf8_string = Line::delete_non_utf8_bytes(bytes);
+        let mut reader = csv::ReaderBuilder::new().from_reader(
+            utf8_string.as_bytes()
+        );
 
         let mut vec = Vec::<Line>::new();
         for i in reader.deserialize() {
@@ -65,7 +92,7 @@ impl Line {
         }
         vec
     }
-
+    
     pub fn validate_struct_fields(&mut self) {
         self.domain = self.format_name_string(&self.domain);
         self.hostname = self.format_name_string(&self.hostname);
@@ -76,10 +103,34 @@ impl Line {
         self.version = self.format_name_string(&self.version);
     }
     
-    fn read_file_to_string(path: PathBuf) -> String {
-        let mut vec = Vec::<u8>::new();
-        File::open(path).unwrap().read_to_end(&mut vec).unwrap();
-        String::from_utf8_lossy(&vec).to_string().replace("\u{FFFD}", "")
+    fn delete_non_utf8_bytes<'a>(bytes: &'a [u8]) -> String {
+        let mut s = String::new();
+        let mut buf: &[u8] = bytes;
+
+        loop {
+            match str::from_utf8(buf) {
+                Ok(utf8_string) => {
+                    s.push_str(utf8_string);
+                    return s;
+                },
+                Err(e) => {
+                    let (valid_utf8, invalid_utf8) = buf.split_at(e.valid_up_to());
+
+                    if !valid_utf8.is_empty() {
+                        let known_valid_part = unsafe {
+                            str::from_utf8_unchecked(valid_utf8)
+                        };
+                        s.push_str(known_valid_part);
+                    }
+
+                    if invalid_utf8.is_empty() {
+                        return s;
+                    }
+
+                    buf = &invalid_utf8[1..];
+                }
+            }
+        }
     }
 
     fn format_name_string(&self, old: &String) -> String {

@@ -4,3 +4,11 @@
 
 DROP FUNCTION IF EXISTS diesel_manage_updated_at(_tbl regclass);
 DROP FUNCTION IF EXISTS diesel_set_updated_at();
+
+drop table machines_programs;
+drop table programs;
+drop table machines;
+drop table employees;
+drop table domains;
+drop table publishers;
+drop table sw_reports;
