@@ -19,7 +19,7 @@ fn main() {
     let routes = routes![
         controllers::domains::index,
         controllers::machines::index,
-        controllers::machines_programs::index,
+        controllers::machines_program::index,
         controllers::programs::index,
         controllers::publishers::index,
         controllers::solar_winds::upload,

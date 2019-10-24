@@ -37,7 +37,7 @@ $$ LANGUAGE plpgsql;
 ------------------------------------------------------------------------------------
 create table sw_reports(
        id bigserial primary key,
-       generation_date date not null
+       generation_date date not null unique
 );
 
 create table domains(
@@ -65,9 +65,10 @@ create table machines(
 create table programs(
        id bigserial primary key,
        publisher_id bigint references publishers(id) on delete set null,
-       
-       name varchar(260) not null unique,
-       version varchar(100)
+
+       name varchar(260) not null,
+       version varchar(100),
+       constraint no_version_duplicates unique (name, version)
 );
 
 create table machines_programs(

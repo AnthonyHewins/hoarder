@@ -1,2 +1,2 @@
 [global.databases]
-postgresql_logs = { url = "postgres://development:development@localhost/development" }
+postgresql_logs = { url = "postgres://development:development@localhost/hoarder" }
