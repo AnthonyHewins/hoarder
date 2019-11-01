@@ -25,5 +25,10 @@ pub enum SwError {
     CsvError {
         lineno: usize,
         err: String
+    },
+
+    #[fail(display = "Unexpected error: {}", err)]
+    UnexpectedError {
+        err: String
     }
 }

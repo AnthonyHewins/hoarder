@@ -19,7 +19,7 @@ pub fn upsert_bytes<'a>(
     conn: &PgConnection,
     buf: &'a mut [u8],
     report_date: NaiveDate
-) -> Vec<SwError> {
+) -> Result<Vec<SwError>, SwError> {
     upsert(conn, Line::from_bytes(buf), report_date)
 }
 
@@ -27,19 +27,19 @@ pub fn upsert(
     conn: &PgConnection,
     lines: Vec::<Result<Line, SwError>>,
     report_date: NaiveDate
-) -> Vec<SwError> {
+) -> Result<Vec<SwError>, SwError> {
     let mut memo = match SwReport::upsert(conn, report_date) {
         Ok(id) => UpsertMemo::new(lines.len(), conn, id),
-        Err(e) => return vec![ SwError::MetadataError { err: e.to_string() } ]
+        Err(e) => return Err(SwError::MetadataError { err: e.to_string() })
     };
 
     let (mut col_ptr, mut lineno) = (0,0);
 
-    lines.into_iter().filter_map(|wrapped_line| {
+    Ok(lines.into_iter().filter_map(|wrapped_line| {
         lineno += 1;
 
         let line = match wrapped_line {
-            Ok(l) => l,
+            Ok(line) => line,
             Err(e) => return Some(e)
         };
 
@@ -80,7 +80,7 @@ pub fn upsert(
                 Some(e)
             }
         }
-    }).collect::<Vec::<SwError>>()
+    }).collect::<Vec::<SwError>>())
 }
 
 fn invalidate_cache(memo: &mut UpsertMemo, line: &Line) {

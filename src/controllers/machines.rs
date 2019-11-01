@@ -1,4 +1,4 @@
-use rocket_contrib::json::Json;
+use rocket_contrib::json::{JsonValue, Json};
 
 use diesel::prelude::*;
 
@@ -18,40 +18,42 @@ pub fn index(
     id_start: Option<i64>,
     id_end: Option<i64>,
     domain_id: Option<i64>
-) -> Json<Vec::<Machine>> {
-    let mut q = machines::table.into_boxed();
+) -> Json<JsonValue> {
+    super::json_response(|| {
+        let mut q = machines::table.into_boxed();
 
-    // Metadata
-    if id_start.is_some() {
-        q = q.filter(
-            machines::id.ge( id_start.unwrap() )
-        );
-    }
+        // Metadata
+        if id_start.is_some() {
+            q = q.filter(
+                machines::id.ge( id_start.unwrap() )
+            );
+        }
 
-    if id_end.is_some() {
-        q = q.filter(
-            machines::id.le( id_end.unwrap() )
-        );
-    }
+        if id_end.is_some() {
+            q = q.filter(
+                machines::id.le( id_end.unwrap() )
+            );
+        }
 
-    // User data
-    if user.is_some() {
-        q = q.filter(
-            machines::employee_id.eq( user.unwrap() )
-        );
-    }
+        // User data
+        if user.is_some() {
+            q = q.filter(
+                machines::employee_id.eq( user.unwrap() )
+            );
+        }
 
-    if host.is_some() {
-        q = q.filter(
-            machines::host.ilike( wildcard(&host.unwrap()) )
-        );
-    }
+        if host.is_some() {
+            q = q.filter(
+                machines::host.ilike( wildcard(host.as_ref().unwrap()) )
+            );
+        }
 
-    if domain_id.is_some() {
-        q = q.filter(
-            machines::domain_id.eq( domain_id.unwrap() )
-        );
-    }
-    
-    Json(q.load::<Machine>(&*conn).unwrap())
+        if domain_id.is_some() {
+            q = q.filter(
+                machines::domain_id.eq( domain_id.unwrap() )
+            );
+        }
+        
+        q.load::<Machine>(&*conn).map_err(|e| e.to_string())
+    })
 }

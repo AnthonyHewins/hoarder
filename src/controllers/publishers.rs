@@ -1,4 +1,4 @@
-use rocket_contrib::json::Json;
+use rocket_contrib::json::{JsonValue, Json};
 
 use diesel::prelude::*;
 
@@ -11,26 +11,28 @@ pub fn index(
     name: Option<String>,
     id_start: Option<i64>,
     id_end: Option<i64>,
-) -> Json<Vec::<Publisher>> {
-    let mut q = publishers::table.into_boxed();
+) -> Json<JsonValue> {
+    super::json_response(|| {
+        let mut q = publishers::table.into_boxed();
 
-    if id_start.is_some() {
-        q = q.filter(
-            publishers::id.ge( id_start.unwrap() )
-        );
-    }
+        if id_start.is_some() {
+            q = q.filter(
+                publishers::id.ge( id_start.unwrap() )
+            );
+        }
 
-    if id_end.is_some() {
-        q = q.filter(
-            publishers::id.le( id_end.unwrap() )
-        );
-    }
+        if id_end.is_some() {
+            q = q.filter(
+                publishers::id.le( id_end.unwrap() )
+            );
+        }
 
-    if name.is_some() {
-        q = q.filter(
-            publishers::name.ilike( wildcard(&name.unwrap()) )
-        );
-    }
+        if name.is_some() {
+            q = q.filter(
+                publishers::name.ilike( wildcard(name.as_ref().unwrap()) )
+            );
+        }
 
-    Json(q.load::<Publisher>(&*conn).unwrap())
+        q.load::<Publisher>(&*conn).map_err(|e| e.to_string())
+    })
 }
