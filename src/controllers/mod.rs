@@ -2,7 +2,6 @@ use rocket::Data;
 
 use serde::Serialize;
 use rocket_contrib::json::{JsonValue, Json};
-use chrono::{ParseError, NaiveDate};
 
 // CRUD endpoints
 pub mod domains;
@@ -14,11 +13,19 @@ pub mod publishers;
 pub mod solar_winds;
 
 pub fn json_response<F, O, E>(f: F) -> Json<JsonValue>
-where O: Serialize, E: Serialize, F: Fn() -> Result<O, E> {
+where O: Serialize, E: Serialize, F: FnOnce() -> Result<O, E> {
     match f() {
-        Ok(result) => Json(json!({"status": "ok", "data": result})),
-        Err(e) => Json(json!({"status": "err", "data": e}))
+        Ok(result) => json_ok(result),
+        Err(e) => json_err(e)
     }
+}
+
+pub fn json_err<T>(data: T) -> Json<JsonValue> where T: Serialize {
+    Json(json!({"status": "ok", "data": data}))
+}
+
+pub fn json_ok<T>(data: T) -> Json<JsonValue> where T: Serialize {
+    Json(json!({"status": "ok", "data": data}))
 }
 
 pub fn wildcard<'a>(s: &'a str) -> String {
